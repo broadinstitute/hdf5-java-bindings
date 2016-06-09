@@ -1,0 +1,21 @@
+matrix:
+  include:
+    - os: linux
+      jdk: oraclejdk8
+      dist: trusty
+      env: TERM=dumb
+    - os: osx
+      osx_image: xcode8
+      env: TERM=dumb
+before_cache:
+  - rm -f $HOME/.gradle/caches/modules-2/modules-2.lock
+cache:
+  directories:
+    - $HOME/.gradle/caches/
+    - $HOME/.gradle/wrapper/
+script:
+- ./gradlew jacocoTestReport;
+after_success:
+-  ./gradlew coveralls;
+after_failure:
+- dmesg | tail -100
