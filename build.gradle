@@ -1,0 +1,232 @@
+//Note: this section 'buildscript` is only for the dependencies of the buildscript itself.
+// See the second 'repositories' section below for the actual dependencies of this library itself
+buildscript {
+    repositories {
+        mavenCentral()
+        jcenter() // for shadow plugin
+     }
+}
+
+plugins {
+    id "java"
+    id "application"
+    id 'maven'
+    id 'signing'
+    id "jacoco"
+    id "com.github.johnrengelman.shadow" version "1.2.3"
+    id "com.github.kt3k.coveralls" version "2.6.3"
+    id "com.github.ben-manes.versions" version "0.12.0" //used for identifying dependencies that need updating
+    id 'com.palantir.git-version' version '0.5.1' //version helper
+}
+
+import org.gradle.internal.os.OperatingSystem
+
+def isMacOsX = OperatingSystem.current().macOsX
+def customJarPath = hasProperty("custom.jar.dir") ? property("custom.jar.dir") : null;
+
+
+
+repositories {
+    mavenCentral()
+    jcenter()
+
+    // Locations for finding HDF and HDFJava jar files
+    //  Please note that this is only for the jar files, not the jni shared native libraries (.so files --
+    //   E.g. libjhdf5.so).  Instructions for those are found in README.md.
+    //
+    // If this falls out of date for Ubuntu:
+    //  Locations for both the JNI and the jar files can be located at: http://packages.ubuntu.com/
+    //
+    //  Search for libjhdf5-java
+    //  Select the desired Ubuntu build (e.g. vivid)
+    //  Click "list of files" for the appropriate architecture
+    //  Find the dir for the HDF jar files (listed in dependencies) and add it to the list below
+    // If you would like the location of libjhdf5.so, you can search for "libjhdf5-jni" and look at the file listing.
+
+    flatDir {
+        // Ubuntu 12.04 through 15.04.  ``sudo apt-get install hdfview``  (aside:  shared libraries are in /usr/lib/jni/)
+        // May not work in versions 15.10 and above
+        dirs '/usr/share/java/'
+    }
+
+    flatDir {
+        // Mac following dmg install instructions in README.
+        dirs '/Applications/HDFView.app/Contents/Java/'
+    }
+
+    flatDir {
+        // Travis
+        dirs "$System.env.HDF5_DIR/HDFView/lib/"
+    }
+
+    flatDir {
+        dirs '/broad/software/free/Linux/redhat_6_x86_64/pkgs/hdfview_2.9/HDFView/lib/'
+    }
+
+    if (customJarPath) {
+        flatDir {
+            // Specified by user
+            dirs customJarPath
+        }
+    }
+    mavenLocal()
+}
+
+
+
+jacocoTestReport {
+    dependsOn test
+    group = "Reporting"
+    description = "Generate Jacoco coverage reports after running tests."
+    additionalSourceDirs = files(sourceSets.main.allJava.srcDirs)
+
+    reports {
+        xml.enabled = true // coveralls plugin depends on xml format report
+        html.enabled = true
+    }
+}
+
+jacoco {
+    toolVersion = "0.7.5.201505241946"
+}
+
+//NOTE: we ignore contracts for now
+compileJava {
+  options.compilerArgs = ['-proc:none', '-Xlint:all','-Werror','-Xdiags:verbose']
+}
+compileTestJava {
+  options.compilerArgs = ['-proc:none', '-Xlint:all','-Werror','-Xdiags:verbose']
+}
+
+
+dependencies {
+    compile 'org.apache.commons:commons-lang3:3.4'
+    compile 'org.apache.commons:commons-math3:3.5'
+    compile 'commons-io:commons-io:2.4'
+
+    testCompile 'org.testng:testng:6.9.6'
+    compile 'org.apache.hadoop:hadoop-minicluster:2.7.2' //the version of minicluster should match the version of hadoop
+
+    // HDF5 and HDF-Java jar files
+    if (isMacOsX) {
+        compile name: 'jarhdf5-2.11.0'
+    }
+    else {
+        compile name: 'jhdf5'
+    }
+}
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+final isRelease = Boolean.getBoolean("release")
+version = (isRelease ? gitVersion() : gitVersion() + "-SNAPSHOT").replaceAll(".dirty", "")
+
+logger.info("build for version:" + version)
+group = 'org.broadinstitute'
+
+
+tasks.withType(Jar) {
+    manifest {
+        attributes 'Implementation-Title': 'HDF5-java-bindings',
+                'Implementation-Version': version
+    }
+}
+
+// testJavaLibraryPath: Where to find jni libraries (e.g. HDF5's) to be used during testing.
+// The environment variable JAVA_LIBRARY_PATH takes preference if present,
+// Otherwise we used Gradle's 'testJavaLibraryPath' if present (use ~/.gradle.properties to addapt it to your dev. setup)
+// or is left to the default otherwise. This default typically points to the usual system */lib directories.
+def testJavaLibraryPath = System.env['JAVA_LIBRARY_PATH'] ?: hasProperty("testJavaLibraryPath") ? property("testJavaLibraryPath") : null;
+
+test {
+    outputs.upToDateWhen { false }  //tests will never be "up to date" so you can always rerun them
+    String CI = "$System.env.CI"
+    useTestNG{
+
+    }
+
+    if (testJavaLibraryPath) {
+      systemProperties['java.library.path'] = testJavaLibraryPath
+    }
+
+    // set heap size for the test JVM(s)
+    minHeapSize = "1G"
+    maxHeapSize = "2G"
+
+    if (CI == "true") {
+        int count = 0
+        // listen to events in the test execution lifecycle
+
+        beforeTest { descriptor ->
+            count++
+            if( count % 10000 == 0) {
+                logger.lifecycle("Finished "+ Integer.toString(count++) + " tests")
+            }
+        }
+    } else {
+        // show standard out and standard error of the test JVM(s) on the console
+        testLogging.showStandardStreams = true
+        beforeTest { descriptor ->
+            logger.lifecycle("Running Test: " + descriptor)
+        }
+
+        // listen to standard out and standard error of the test JVM(s)
+        onOutput { descriptor, event ->
+            logger.lifecycle("Test: " + descriptor + " produced standard out/err: " + event.message )
+        }
+    }
+
+    testLogging {
+        testLogging {
+            events "skipped", "failed"
+            exceptionFormat = "full"
+        }
+        afterSuite { desc, result ->
+            if (!desc.parent) { // will match the outermost suite
+                println "Results: ${result.resultType} (${result.testCount} tests, ${result.successfulTestCount} successes, ${result.failedTestCount} failures, ${result.skippedTestCount} skipped)"
+            }
+        }
+    }
+
+}
+
+task wrapper(type: Wrapper) {
+    gradleVersion = '2.13'
+}
+
+task javadocJar(type: Jar, dependsOn: javadoc) {
+    classifier = 'javadoc'
+    from 'build/docs/javadoc'
+}
+
+task sourcesJar(type: Jar) {
+    from sourceSets.main.allSource
+    classifier = 'sources'
+}
+
+// This is a hack to disable the java 8 default javadoc lint until we fix the html formatting
+if (JavaVersion.current().isJava8Compatible()) {
+    tasks.withType(Javadoc) {
+        options.addStringOption('Xdoclint:none', '-quiet')
+    }
+}
+
+/**
+ *This specifies what artifacts will be built and uploaded when performing a maven upload.
+ */
+artifacts {
+    archives jar
+    archives javadocJar
+    archives sourcesJar
+}
+
+/**
+ * Sign non-snapshot releases with our secret key.  This should never need to be invoked directly.
+ */
+signing {
+    required { isRelease && gradle.taskGraph.hasTask("uploadArchives") }
+    sign configurations.archives
+}
+
+
