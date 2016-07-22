@@ -1,12 +1,22 @@
-*.class
+.idea/
+*.ipr
+*.iml
+*.iws
+*.iml
+.gradle
+build/
+.idea/libraries/Gradle__*
+*.*~
+.*~
+.DS_Store
+*.swp
+gradlew.bat
+tmp/
+adam.log
 
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
+#Please don't commit me
+client_secret.json
+servicekey.json
 
-# Package Files #
-*.jar
-*.war
-*.ear
-
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
-hs_err_pid*
+#Test Generated File
+I_SHOULD_HAVE_BEEN_DELETED
