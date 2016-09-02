@@ -74,6 +74,11 @@ public final class HDF5File implements AutoCloseable {
      * @throws HDF5LibException if the HDF5 library is not supported or could not be initialized.
      */
     public HDF5File(final File file, final OpenMode mode) {
+        if( !HDF5Library.loadLibrary(null) ) {
+            throw new HDF5LibException("Cannot load the required HDF5 library. " +
+                                               "HDF5 is currently supported on x86-64 architecture and Linux or OSX systems.");
+        }
+
         fileId = open(this.file = Utils.nonNull(file, "the input file cannot be null"), Utils.nonNull(mode, "the mode cannot be null"));
         if (fileId < 0) {
             throw new HDF5LibException(
@@ -479,7 +484,7 @@ public final class HDF5File implements AutoCloseable {
                 file.delete();
                 file.createNewFile();
             }
-            fileId = H5.H5Fopen(file.getAbsolutePath(), mode.flags, HDF5Constants.H5P_DEFAULT);
+            fileId = H5.H5Fopen(file.getAbsolutePath(), mode.getFlags(), HDF5Constants.H5P_DEFAULT);
         } catch (final HDF5LibraryException | IOException e) {
             throw new HDF5LibException(
                     String.format("exception when opening '%s' with %s mode: %s",file.getAbsolutePath(), mode, e.getMessage()), e);
@@ -499,11 +504,11 @@ public final class HDF5File implements AutoCloseable {
         /**
          * Access the file for read-only, it won't try to create an empty file if none exists.
          */
-        READ_ONLY(HDF5Constants.H5F_ACC_RDONLY),
+        READ_ONLY(() -> HDF5Constants.H5F_ACC_RDONLY),
         /**
          * Access the file for read or write, it won't try to create an empty file if non exists.
          */
-        READ_WRITE(HDF5Constants.H5F_ACC_RDWR),
+        READ_WRITE(() -> HDF5Constants.H5F_ACC_RDWR),
 
         /**
          * Creates a new file with empty contents and give read-write access to it.
@@ -511,12 +516,21 @@ public final class HDF5File implements AutoCloseable {
          * It will overwrite its contents.
          * </p>
          */
-        CREATE(HDF5Constants.H5F_ACC_RDWR);
+        CREATE(() -> HDF5Constants.H5F_ACC_RDWR);
 
-        private final int flags;
+        /**
+         * A supplier is used to defer class loading of the {@link HDF5Constants} class until it's actually needed.
+         * This allows the native library to be loaded during {@link #HDF5File(File, OpenMode)} instead of needing to be
+         * statically loaded.
+         */
+        private final Supplier<Integer> flagSupplier;
 
-        OpenMode(final int flags) {
-            this.flags = flags;
+        OpenMode(final Supplier<Integer> flagSupplier) {
+            this.flagSupplier = flagSupplier;
+        }
+
+        private int getFlags(){
+            return flagSupplier.get();
         }
 
         /**
