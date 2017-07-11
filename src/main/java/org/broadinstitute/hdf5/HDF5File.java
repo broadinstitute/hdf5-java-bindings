@@ -11,6 +11,8 @@ import org.apache.commons.lang3.tuple.Pair;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
@@ -37,7 +39,7 @@ public final class HDF5File implements AutoCloseable {
     /**
      * Reference to the underlying HDF5 file location.
      */
-    private final File file;
+    private final Path file;
 
     /**
      * The underlying HDF5 file open resource id as provided by {@link H5#H5Fopen}.
@@ -63,7 +65,15 @@ public final class HDF5File implements AutoCloseable {
      * @param file the underlying file name.
      */
     public HDF5File(final File file) {
-        this(file, OpenMode.READ_ONLY);
+        this(file.toPath());
+    }
+
+    /**
+     * Creates a new HDF5-file accessor object given the file name for reading purposes.
+     * @param path the underlying file name.
+     */
+    public HDF5File(final Path path) {
+        this(path, OpenMode.READ_ONLY);
     }
 
     /**
@@ -74,15 +84,26 @@ public final class HDF5File implements AutoCloseable {
      * @throws HDF5LibException if the HDF5 library is not supported or could not be initialized.
      */
     public HDF5File(final File file, final OpenMode mode) {
+        this(file.toPath(), mode);
+    }
+
+    /**
+     * Creates a new HDF5 reader on a existing file.
+     *
+     * @param path the target file.
+     * @throws IllegalArgumentException if {@code file} is {@code null}.
+     * @throws HDF5LibException if the HDF5 library is not supported or could not be initialized.
+     */
+    public HDF5File(final Path path, final OpenMode mode) {
         if( !HDF5Library.loadLibrary(null) ) {
             throw new HDF5LibException("Cannot load the required HDF5 library. " +
                                                "HDF5 is currently supported on x86-64 architecture and Linux or OSX systems.");
         }
 
-        fileId = open(this.file = Utils.nonNull(file, "the input file cannot be null"), Utils.nonNull(mode, "the mode cannot be null"));
+        fileId = open(this.file = Utils.nonNull(path, "the input file cannot be null"), Utils.nonNull(mode, "the mode cannot be null"));
         if (fileId < 0) {
             throw new HDF5LibException(
-                    String.format("failure when opening '%s' for read-only access; negative fileId: %d",file.getAbsolutePath(),fileId)
+                    String.format("failure when opening '%s' for read-only access; negative fileId: %d",file.toAbsolutePath().toString(),fileId)
             );
         }
         canWrite = mode.canWrite();
@@ -91,8 +112,20 @@ public final class HDF5File implements AutoCloseable {
     /**
      * Returns a reference to the underlying HDF5 file location.
      * @return never {@code null}.
+     * @deprecated use {#getPath()}.
      */
+    @Deprecated
     public File getFile() {
+        return file.toFile();
+    }
+
+    /**
+     * Returns a reference to the underlying HDF5 file location.
+     * @return never {@code null}.
+     * @deprecated use {#getPath()}.
+     */
+    @Deprecated
+    public Path getPath() {
         return file;
     }
 
@@ -113,7 +146,7 @@ public final class HDF5File implements AutoCloseable {
             fileId = FILE_ID_WHEN_CLOSED;
         } catch (final HDF5LibraryException e) {
             throw new HDF5LibException(
-                    String.format("failure when closing '%s' from read-only access: %s",file.getAbsolutePath(),e.getMessage()),e);
+                    String.format("failure when closing '%s' from read-only access: %s",file.toAbsolutePath().toString(),e.getMessage()),e);
         }
     }
 
@@ -128,7 +161,7 @@ public final class HDF5File implements AutoCloseable {
             H5.H5Fflush(fileId, HDF5Constants.H5F_SCOPE_GLOBAL);
         } catch (final HDF5LibraryException e) {
             throw new HDF5LibException(
-                    String.format("failure when flushing '%s': %s",file.getAbsolutePath(),e.getMessage()),e);
+                    String.format("failure when flushing '%s': %s",file.toAbsolutePath().toString(),e.getMessage()),e);
         }
     }
 
@@ -477,21 +510,21 @@ public final class HDF5File implements AutoCloseable {
     /**
      * Opens a HDF5 file given its access {@link OpenMode mode}.
      */
-    private static int open(final File file, final OpenMode mode) {
+    private static int open(final Path file, final OpenMode mode) {
         final int fileId;
         try {
             if (mode == OpenMode.CREATE) {
-                file.delete();
-                file.createNewFile();
+                Files.deleteIfExists(file);
+                Files.createFile(file);
             }
-            fileId = H5.H5Fopen(file.getAbsolutePath(), mode.getFlags(), HDF5Constants.H5P_DEFAULT);
+            fileId = H5.H5Fopen(file.toAbsolutePath().toString(), mode.getFlags(), HDF5Constants.H5P_DEFAULT);
         } catch (final HDF5LibraryException | IOException e) {
             throw new HDF5LibException(
-                    String.format("exception when opening '%s' with %s mode: %s",file.getAbsolutePath(), mode, e.getMessage()), e);
+                    String.format("exception when opening '%s' with %s mode: %s",file.toAbsolutePath().toString(), mode, e.getMessage()), e);
         }
         if (fileId < 0) {
             throw new HDF5LibException(
-                    String.format("failure when opening '%s' for read-only access; negative fileId: %d",file.getAbsolutePath(),fileId)
+                    String.format("failure when opening '%s' for read-only access; negative fileId: %d",file.toAbsolutePath().toString(),fileId)
             );
         }
         return fileId;
