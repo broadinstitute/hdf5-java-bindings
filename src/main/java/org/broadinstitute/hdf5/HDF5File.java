@@ -65,7 +65,7 @@ public final class HDF5File implements AutoCloseable {
      * @param file the underlying file name.
      */
     public HDF5File(final File file) {
-        this(file.toPath());
+        this(file == null ? null : file.toPath());
     }
 
     /**
@@ -122,9 +122,7 @@ public final class HDF5File implements AutoCloseable {
     /**
      * Returns a reference to the underlying HDF5 file location.
      * @return never {@code null}.
-     * @deprecated use {#getPath()}.
      */
-    @Deprecated
     public Path getPath() {
         return file;
     }
