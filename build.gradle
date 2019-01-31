@@ -12,7 +12,7 @@ plugins {
     id 'maven'
     id 'signing'
     id "jacoco"
-    id "com.github.johnrengelman.shadow" version "1.2.3"
+    id "com.github.johnrengelman.shadow" version "4.0.4"
     id "com.github.kt3k.coveralls" version "2.6.3"
     id "com.github.ben-manes.versions" version "0.12.0" //used for identifying dependencies that need updating
     id 'com.palantir.git-version' version '0.5.1' //version helper
@@ -34,16 +34,11 @@ jacocoTestReport {
     dependsOn test
     group = "Reporting"
     description = "Generate Jacoco coverage reports after running tests."
-    additionalSourceDirs = files(sourceSets.main.allJava.srcDirs)
-
+    
     reports {
         xml.enabled = true // coveralls plugin depends on xml format report
         html.enabled = true
     }
-}
-
-jacoco {
-    toolVersion = "0.7.5.201505241946"
 }
 
 //NOTE: we ignore contracts for now
@@ -88,7 +83,7 @@ defaultTasks 'jar'
 // to our build directory so that they get packaged together with our class files when we create our jar
 task unzipHDF5JAR(type: Copy) {
     def zipFile = file('src/main/resources/org/broadinstitute/hdf5/jarhdf5-2.11.0.jar')
-    def outputDir = file("${buildDir}/classes/main")
+    def outputDir = file("${buildDir}/classes/java/main")
 
     from zipTree(zipFile)
     into outputDir
@@ -142,18 +137,18 @@ test {
 
 }
 
-task wrapper(type: Wrapper) {
-    gradleVersion = '2.13'
+wrapper {
+    gradleVersion = '4.10.2'
 }
 
 task javadocJar(type: Jar, dependsOn: javadoc) {
-    classifier = 'javadoc'
+    classifier = "javadoc"
     from 'build/docs/javadoc'
 }
 
 task sourcesJar(type: Jar) {
     from sourceSets.main.allSource
-    classifier = 'sources'
+    classifier = "sources"
 }
 
 // This is a hack to disable the java 8 default javadoc lint until we fix the html formatting
