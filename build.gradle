@@ -8,13 +8,13 @@ buildscript {
 }
 
 plugins {
-    id "java"
-    id 'maven'
+    id "java-library"
+    id 'maven-publish'
     id 'signing'
     id "jacoco"
-    id "com.github.johnrengelman.shadow" version "1.2.3"
-    id "com.github.kt3k.coveralls" version "2.6.3"
-    id "com.github.ben-manes.versions" version "0.12.0" //used for identifying dependencies that need updating
+    id "com.github.johnrengelman.shadow" version "4.0.4"
+    id "com.github.kt3k.coveralls" version "2.8.2"
+    id "com.github.ben-manes.versions" version "0.20.0" //used for identifying dependencies that need updating
     id 'com.palantir.git-version' version '0.5.1' //version helper
 }
 
@@ -34,16 +34,11 @@ jacocoTestReport {
     dependsOn test
     group = "Reporting"
     description = "Generate Jacoco coverage reports after running tests."
-    additionalSourceDirs = files(sourceSets.main.allJava.srcDirs)
-
+    
     reports {
         xml.enabled = true // coveralls plugin depends on xml format report
         html.enabled = true
     }
-}
-
-jacoco {
-    toolVersion = "0.7.5.201505241946"
 }
 
 //NOTE: we ignore contracts for now
@@ -56,14 +51,14 @@ compileTestJava {
 
 
 dependencies {
-    compile 'org.slf4j:slf4j-log4j12:1.7.21'
+    implementation 'org.slf4j:slf4j-log4j12:1.7.21'
+    implementation 'org.apache.commons:commons-lang3:3.4'
+    implementation 'org.apache.commons:commons-math3:3.5'
+    implementation 'commons-io:commons-io:2.4'
 
-    compile 'org.apache.commons:commons-lang3:3.4'
-    compile 'org.apache.commons:commons-math3:3.5'
-    compile 'commons-io:commons-io:2.4'
-    compile 'org.broadinstitute:gatk-native-bindings:0.0.3'
+    api 'org.broadinstitute:gatk-native-bindings:1.0.0'
 
-    testCompile 'org.testng:testng:6.9.6'
+    testImplementation 'org.testng:testng:6.9.6'
 
     //This jar is not available on maven central and we want to a) compile against it and b) make it available to downstream projects
     //So the workaround is to use the jar as a compile-only dependency and then mix its class files together with ours
@@ -88,7 +83,7 @@ defaultTasks 'jar'
 // to our build directory so that they get packaged together with our class files when we create our jar
 task unzipHDF5JAR(type: Copy) {
     def zipFile = file('src/main/resources/org/broadinstitute/hdf5/jarhdf5-2.11.0.jar')
-    def outputDir = file("${buildDir}/classes/main")
+    def outputDir = file("${buildDir}/classes/java/main")
 
     from zipTree(zipFile)
     into outputDir
@@ -97,7 +92,7 @@ task unzipHDF5JAR(type: Copy) {
 tasks.withType(Jar) {
     manifest {
         attributes 'Implementation-Title': 'HDF5-java-bindings',
-                'Implementation-Version': version
+                'Implementation-Version': archiveVersion
     }
 }
 
@@ -107,15 +102,11 @@ jar {dependsOn unzipHDF5JAR}
 test {
     outputs.upToDateWhen { false }  //tests will never be "up to date" so you can always rerun them
     dependsOn unzipHDF5JAR          //unzip the hdf5 jar to build path because it's a compileOnly dependency so it wont' be visible otherwise
-    String CI = "$System.env.CI"
-    useTestNG{
-
-    }
+    useTestNG {}
 
     // set heap size for the test JVM(s)
     minHeapSize = "1G"
     maxHeapSize = "2G"
-
 
     // show standard out and standard error of the test JVM(s) on the console
     testLogging.showStandardStreams = true
@@ -142,76 +133,37 @@ test {
 
 }
 
-task wrapper(type: Wrapper) {
-    gradleVersion = '2.13'
+wrapper {
+    gradleVersion = '5.1.1'
 }
 
 task javadocJar(type: Jar, dependsOn: javadoc) {
-    classifier = 'javadoc'
-    from 'build/docs/javadoc'
+    archiveClassifier.set("javadoc")
+    from javadoc.destinationDir
 }
 
 task sourcesJar(type: Jar) {
-    from sourceSets.main.allSource
-    classifier = 'sources'
+    from sourceSets.main.allJava
+    archiveClassifier.set("sources")
 }
 
-// This is a hack to disable the java 8 default javadoc lint until we fix the html formatting
-if (JavaVersion.current().isJava8Compatible()) {
-    tasks.withType(Javadoc) {
-        options.addStringOption('Xdoclint:none', '-quiet')
-    }
-}
+publishing {
+    publications {
+        library(MavenPublication) {
+            from components.java
+            artifact javadocJar
+            artifact sourcesJar
 
-/**
- *This specifies what artifacts will be built and uploaded when performing a maven upload.
- */
-artifacts {
-    archives jar
-    archives javadocJar
-    archives sourcesJar
-}
-
-/**
- * Sign non-snapshot releases with our secret key.  This should never need to be invoked directly.
- */
-signing {
-    required { isRelease && gradle.taskGraph.hasTask("uploadArchives") }
-    sign configurations.archives
-}
-
-/**
- * Upload a release to sonatype.  You must be an authorized uploader and have your sonatype
- * username and password information in your gradle properties file.  See the readme for more info.
- *
- * For releasing to your local maven repo, use gradle install
- */
-uploadArchives {
-    doFirst {
-        println "Attempting to upload version:$version"
-    }
-    repositories {
-        mavenDeployer {
-            beforeDeployment { MavenDeployment deployment -> signing.signPom(deployment) }
-
-            repository(url: "https://oss.sonatype.org/service/local/staging/deploy/maven2/") {
-                authentication(userName: project.findProperty("sonatypeUsername"), password: project.findProperty("sonatypePassword"))
-            }
-
-            snapshotRepository(url: "https://artifactory.broadinstitute.org/artifactory/libs-snapshot-local/") {
-                authentication(userName: System.env.ARTIFACTORY_USERNAME, password: System.env.ARTIFACTORY_PASSWORD)
-            }
-
-            pom.project {
-                name 'HDF5 java bindings'
-                packaging 'jar'
-                description 'HDF5 java bindings'
-                url 'http://github.com/broadinstitute/hdf5-java-bindings'
+            pom {
+                name = 'HDF5 java bindings'
+                packaging = 'jar'
+                description = 'HDF5 java bindings'
+                url = 'http://github.com/broadinstitute/hdf5-java-bindings'
 
                 scm {
-                    url 'scm:git@github.com:broadinstitute/hdf5-java-bindings.git'
-                    connection 'scm:git@github.com:broadinstitute/hdf5-java-bindings.git'
-                    developerConnection 'scm:git@github.com:broadinstitute/hdf5-java-bindings.git'
+                    url = 'scm:git@github.com:broadinstitute/hdf5-java-bindings.git'
+                    connection = 'scm:git@github.com:broadinstitute/hdf5-java-bindings.git'
+                    developerConnection = 'scm:git@github.com:broadinstitute/hdf5-java-bindings.git'
                 }
 
                 developers {
@@ -224,14 +176,41 @@ uploadArchives {
 
                 licenses {
                     license {
-                        name 'BSD 3-Clause'
-                        url 'https://github.com/broadinstitute/hdf5-java-bindings/blob/master/LICENSE.TXT'
-                        distribution 'repo'
+                        name = 'BSD 3-Clause'
+                        url = 'https://github.com/broadinstitute/hdf5-java-bindings/blob/master/LICENSE.TXT'
+                        distribution = 'repo'
                     }
                 }
             }
         }
     }
+
+    repositories {
+        maven {
+            credentials {
+                username = isRelease ? project.findProperty("sonatypeUsername") : project.findProperty("artifactoryUsername")
+                password = isRelease ? project.findProperty("sonatypePassword") : project.findProperty("artifactoryPassword")
+            }
+            def release = "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
+            def snapshot = "https://broadinstitute.jfrog.io/broadinstitute/libs-snapshot-local/"
+            url = isRelease ? release : snapshot
+        }
+    }
+}
+
+// This is a hack to disable the java 8 default javadoc lint until we fix the html formatting
+if (JavaVersion.current().isJava8Compatible()) {
+    tasks.withType(Javadoc) {
+        options.addStringOption('Xdoclint:none', '-quiet')
+    }
+}
+
+/**
+ * Sign non-snapshot releases with our secret key.  This should never need to be invoked directly.
+ */
+signing {
+    required { isRelease && gradle.taskGraph.hasTask("publishLibraryPublicationToMavenRepository") }
+    sign publishing.publications.library
 }
 
 
