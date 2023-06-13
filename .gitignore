@@ -13,6 +13,7 @@ build/
 gradlew.bat
 tmp/
 adam.log
+.java-version
 
 #Please don't commit me
 client_secret.json
