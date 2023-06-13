@@ -1,0 +1,37 @@
+name: Build and Test
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java: [ 17 ]
+        experimental: [false]
+      fail-fast: false
+    continue-on-error: ${{ matrix.experimental }}
+    name: Java ${{ matrix.Java }} build and test
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up java ${{ matrix.Java }}
+        uses: actions/setup-java@v3
+        with:
+          java-version: ${{ matrix.Java }}
+          distribution: 'adopt'
+          cache: gradle
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+      - name: Compile with Gradle
+        run: ./gradlew assemble
+      - name: Run tests
+        run: ./gradlew test jacocoTestReport
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results-${{ matrix.Java }}
+          path: build/reports/tests
